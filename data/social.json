@@ -1,0 +1,17 @@
+[
+    {
+        "name": "LinkedIn",
+        "link": "https://www.linkedin.com/company/opora-foundation",
+        "image": "images/social/linkedin-xxl.png"
+    },
+    {
+        "name": "Twitter",
+        "link": "https://twitter.com/OporaFoundation",
+        "image": "images/social/twitter.svg"
+    },
+    {
+        "name": "Telegram",
+        "link": "https://t.me/opora_nl",
+        "image": "images/social/telegram.svg"
+    }
+]

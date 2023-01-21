@@ -1,0 +1,335 @@
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.6.1/d3.min.js"></script> 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js" integrity="sha512-4UKI/XKm3xrvJ6pZS5oTRvIQGIzZFoXR71rRBb1y2N+PbwAsKa5tPl2J6WvbEvwN3TxQCm8hMzsl/pO+82iRlg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<style type="text/css">
+    svg {
+        background-color: white;
+    }
+
+    h1 {
+        color: rgb(115, 115, 115);
+        font-size: 18px;
+        font-family: sans-serif;
+        font-weight: bold;
+        margin: 0;
+        padding-bottom: 10px;
+
+    }
+
+    #container {
+        width: 800px;
+        height: 1200px;
+        margin-left: auto;
+        margin-right: auto;
+        margin-top: 20px;
+        padding: 20px;
+        background-color: white;
+        box-shadow: 1px 1px 1px 2px rgb(217, 217, 217);
+    }
+
+    path#map-element:hover {
+        fill: rgba(8, 81, 156, 0.2);
+        cursor:pointer;
+    }
+
+    .grid path {
+      stroke-width: 0;
+    }
+
+    .grid line {
+      stroke: lightgrey;
+      stroke-opacity: 0.7;
+      shape-rendering: crispEdges;
+    }
+</style>
+
+<div id="container">
+<p style="font-size: small; text-align:justify;">We have analyzed 100K telegram messages of Ukrainians in public channels. For each message, we try to identify the intention of a displaced person about their migration to other European countries based on language, context, geographical location, and other attributes. The distribution of messages is visualized below on this map. For instance, 0.15 for Poland means 15% of messages during the last 14 days were about travelling to Poland.</p>
+
+<h2 style="text-align: center;"></h2>
+</div>
+
+
+<script type="text/javascript">
+    (function () {
+        //Width and height
+        var w = 750;
+        var h = 600;
+
+        //Define map projection
+        var projection = d3.geoAzimuthalEquidistant()
+                               .center([ 13, 52 ])
+                               .translate([ w/2, h/2 ])
+                               .scale([ w * 1.2 ]);
+
+        //Define path generator
+        var path = d3.geoPath()
+                         .projection(projection);
+
+        let json = null
+        let migration_flow = null
+        let migration_flow_transposed = {}
+        let labels = []
+        
+        const parseTime = d3.timeParse("%Y-%m-%d");
+
+        function loadData() {
+            return Promise.all([
+                //Load in GeoJSON data
+                d3.json("{{ "research/europe_features_v2.json" | relURL }}"),
+                d3.csv("{{ "research/migration_flow_v2.csv" | relURL }}")
+            ]).then(datasets => {
+                json = datasets[0]
+                migration_flow = datasets[1]
+
+                migration_flow = d3.map(migration_flow, function(x) {
+                    x.date = parseTime(x.date);
+                    return x;
+                })
+
+                date = d3.map(migration_flow, d => d.date)
+
+                d3.map(migration_flow, function(x) {
+                    d = x.date
+                    d3.map(Object.entries(x), function (x) {
+                        [k, v] = x
+
+                        if ((k == "date") || (k == "msg"))
+                            return;
+
+                        if (k in migration_flow_transposed)
+                            migration_flow_transposed[k].push([d, +v])
+                        else {
+                            migration_flow_transposed[k] = [[d, +v]]
+                            labels.push(k)
+                        }
+                    })
+                })
+
+                migration_flow_transposed = d3.map(
+                    Object.entries(migration_flow_transposed), x => x[1])
+
+                return json;
+            })
+        }
+
+        var svg = d3.select("#container")
+            .append("svg")
+            .attr("width", w)
+            .attr("height", h);
+
+        margin = 80
+        height = h / 4
+        width = w - margin * 2
+
+        title2 = d3.select("#container").append("h3").style("text-align", "center")
+
+        var plot = d3.select("#container")
+            .append("svg")
+            .attr("width", width + margin * 2)
+            .attr("height", height + margin * 2)
+            .append("g")
+                .attr("transform",
+                      "translate(" + margin + ",0)");
+
+        var i = 0
+        var currentCountry = null
+        var p = null
+        let duration = 100
+
+        function showPlot() {
+            var x = d3.scaleLinear()
+                .domain(d3.extent(d3.map(migration_flow, d => d.date)))
+                .range([ 0, width ]);
+
+            var y = d3.scaleLog()
+                .domain([1, d3.max(d3.map(migration_flow, d => +d.msg))])
+                .range([ height, 0 ]);
+
+            var color = d3.scaleOrdinal()
+                .domain(labels)
+                .range(['#FFE15D', '#F49D1A', '#DC3535', '#B01E68']);
+
+            p = plot.selectAll('.line')
+                .data(d3.zip(labels, migration_flow_transposed))
+                .enter()
+                .append('path')
+
+            function drawLine(dd) {
+                dd_f = d3.filter(dd[1], d => d[0] < migration_flow[i].date)
+                return d3.line().curve(d3.curveNatural)
+                    .x(d => x(d[0]))
+                    .y(d => y(Math.max(+d[1], 1)))(dd_f)
+            }
+
+            p.attr('fill', 'none')
+                    .attr('stroke', d => color(d[0]))
+                    .attr('stroke-width', 2)
+                    .attr('d', drawLine)
+
+            plot.append("g")
+                .call(d3.axisLeft(y).ticks(5));
+
+            plot.append("g")
+                .attr("transform", "translate(0," + height + ")")
+                .call(d3.axisBottom(x).ticks(5).tickFormat(d3.timeFormat("%b %Y")))
+        
+            plot.append("text")
+                .attr("class", "y label")
+                .attr("text-anchor", "end")
+                .attr('x', -25)
+                .attr("y", -45)
+                .attr("dy", ".75em")
+                .attr("transform", "rotate(-90)")
+                .text("Messages");
+
+            function myLoop() {
+                setTimeout(function () {
+                    p.transition().duration(duration)
+                        .attr("d", drawLine);
+
+                    if (i < migration_flow.length) {
+                        myLoop();
+                    }
+                }, duration)
+            }
+
+            myLoop();
+        }
+
+        function showMap() {
+            var color = d3.scaleLinear()
+                .domain([0, 0.3])
+                .range([d3.rgb("#ffffff"), d3.rgb("#a60000")]);
+
+            h1 = d3.selectAll("h2");
+
+            let max_radius = 400;
+
+            function color_intensity(d) {
+                country_name = d.properties.name.toLowerCase()
+                
+                if (country_name in migration_flow[i]) {
+                    if (migration_flow[i][country_name] < 0.1)
+                        return "#eee"
+                    let num_msg = migration_flow[i].msg
+                    return color(migration_flow[i][country_name] / +num_msg)
+                }
+
+                return "#eee"
+            }
+
+            
+
+            function fill(d) {
+                h1.text(migration_flow[i].date.toLocaleDateString("en-US"))
+                return color_intensity(d)
+            }
+
+            function buuble_r(d) {
+                country_name = d.properties.name.toLowerCase()
+                
+                if (country_name in migration_flow[i]) {
+                    if (migration_flow[i][country_name] < 0.1)
+                        return 0
+                    let num_msg = migration_flow[i].msg
+                    return max_radius * migration_flow[i][country_name] / +num_msg
+                }
+
+                return 0
+            }
+
+            x = svg.selectAll("path")
+               .data(json.features)
+               .enter().append("g")
+
+            y = x.append("path")
+               .attr("d", path)
+               .attr("id", "map-element")
+               .attr("stroke", "#808080")
+
+            function onMouseHover(d) {
+                console.log(d.srcElement.__data__.properties)
+                currentCountry = d.srcElement.__data__.properties.name.toLowerCase()
+
+                title2.text(currentCountry)
+
+                p.style('opacity', function (d) {
+                    if (d[0] == currentCountry)
+                        return 1;
+                    return 0;
+                })
+            }
+
+            y.on("mouseover", onMouseHover)
+
+            bubbles = svg.selectAll(".circles")
+               .data(json.features)
+               .enter()
+               .append('circle')
+                    .attr('cx', d => path.centroid(d)[0])
+                    .attr('cy', d => path.centroid(d)[1])
+                    .attr('r', buuble_r)
+                    .style('opacity', 0.5)
+                    .style('fill', color_intensity)
+                    .on("mouseover", onMouseHover)
+
+
+            country = svg.selectAll(".labels")
+                .data(json.features)
+                .enter()
+                .append('text')
+                .attr("x", d => path.centroid(d)[0])
+                .attr("y", d => path.centroid(d)[1])
+                .attr("text-anchor","middle")
+                .style("font", "10px times")
+
+
+            function updateText(d) {
+                country_name = d.properties.name.toLowerCase()
+
+                if ((country_name == "ukraine") || (country_name == "belarus"))
+                    return "";
+
+                if (country_name in migration_flow[i]) {
+                    let num_msg = migration_flow[i].msg
+                    return (migration_flow[i][country_name] / num_msg).toFixed(2)
+
+                }
+                return "";
+            }
+
+            country.text()
+
+            y.transition().duration(duration)
+                .attr("fill", fill)
+
+            function myLoop() {
+                setTimeout(function () {
+                    i++;
+                    y.transition().duration(250)
+                        .attr("fill", fill)
+
+                    bubbles.transition().duration(duration)
+                        .attr("r", buuble_r)
+                        .style("fill", "red")
+
+                    country.transition().duration(duration)
+                        .text(updateText)
+
+                    if (i < migration_flow.length) {
+                        myLoop();
+                    }
+                }, duration)
+            }
+
+            myLoop();
+        }
+
+        function showAll() {
+            showMap();
+            showPlot();
+        }
+
+        loadData().then(showAll);
+    })();
+</script>
